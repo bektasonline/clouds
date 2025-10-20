@@ -1,0 +1,95 @@
+{
+  "name": "Türkçe Kaynaklar",
+  "description": "Yasal Türkçe içerik kaynakları (PuhuTV).",
+  "version": 1,
+  "plugins": [
+    {
+      "name": "PuhuTV",
+      "plugin_url": "https://raw.githubusercontent.com/<bektasonline>/cloudstream-tr/main/src/puhutv/manifest.json"
+    }
+  ]
+}
+{
+  "name": "PuhuTV",
+  "description": "Yasal Türkçe diziler, filmler ve programlar (puhutv.com).",
+  "version": 1,
+  "author": "<bektasonline>",
+  "mainClass": "com.cloudstream.tr.puhutv.PuhuTV",
+  "type": "tv",
+  "iconUrl": "https://puhutv.com/favicon.ico"
+}
+dependencies {
+    implementation(project(":Cloudstream3"))
+}
+package com.cloudstream.tr.puhutv
+
+import com.lagradost.cloudstream3.*
+import com.lagradost.cloudstream3.utils.*
+
+class PuhuTV : MainAPI() {
+    override var mainUrl = "https://puhutv.com"
+    override var name = "PuhuTV"
+    override val supportedTypes = setOf(TvType.Movie, TvType.TvSeries)
+    override val lang = "tr"
+
+    override suspend fun getMainPage(): HomePageResponse {
+        val categories = listOf("diziler", "filmler", "programlar")
+        val home = categories.mapNotNull { cat ->
+            try {
+                val url = "$mainUrl/api/channel/$cat"
+                val json = app.get(url).parsedSafe<Map<String, Any>>() ?: return@mapNotNull null
+                val contents = json["contents"] as? List<Map<String, Any>> ?: return@mapNotNull null
+                val list = contents.mapNotNull {
+                    val title = it["title"]?.toString() ?: return@mapNotNull null
+                    val href = "$mainUrl/${it["path"]}"
+                    val poster = it["image"]?.toString()
+                    MovieSearchResponse(title, href, name, TvType.Movie, poster, null, null, null)
+                }
+                HomePageList(cat.replaceFirstChar { it.uppercase() }, list)
+            } catch (_: Exception) {
+                null
+            }
+        }
+        return HomePageResponse(home)
+    }
+
+    override suspend fun load(url: String): LoadResponse {
+        val jsonUrl = "$mainUrl/api/content?path=" + url.removePrefix(mainUrl)
+        val data = app.get(jsonUrl).parsedSafe<Map<String, Any>>() ?: throw ErrorLoadingException()
+        val title = data["title"]?.toString() ?: "PuhuTV"
+        val poster = data["image"]?.toString()
+        val description = data["summary"]?.toString() ?: ""
+        val videos = data["videos"] as? List<Map<String, Any>> ?: emptyList()
+
+        if (videos.isNotEmpty()) {
+            val episodes = videos.map {
+                Episode(
+                    data = it["videoUrl"].toString(),
+                    name = it["title"]?.toString(),
+                    posterUrl = it["image"]?.toString()
+                )
+            }
+            return TvSeriesLoadResponse(title, url, name, TvType.TvSeries, episodes, poster, description)
+        }
+
+        return MovieLoadResponse(title, url, name, TvType.Movie, poster, description, null)
+    }
+
+    override suspend fun loadLinks(
+        data: String,
+        isCasting: Boolean,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ): Boolean {
+        callback(
+            ExtractorLink(
+                source = name,
+                name = "PuhuTV",
+                url = data,
+                referer = mainUrl,
+                quality = Qualities.Unknown
+            )
+        )
+        return true
+    }
+}
